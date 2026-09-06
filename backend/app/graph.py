@@ -1707,11 +1707,17 @@ def validate_classification_node(state: GraphState) -> dict:
             if page.get("page_type") not in ("careers", "homepage", "contact"):
                 continue
             signals = detect_canadian_signals(page.get("content", ""))
-            # A careers page on a .ca domain is itself a Canadian employment
-            # signal — a dedicated Canadian job portal implies Canadian hiring.
-            page_host = (urlparse(page.get("url", "")).netloc or "").lower()
-            if page.get("page_type") == "careers" and page_host.endswith(".ca"):
-                signals = signals or ["careers portal on .ca domain"]
+            # A careers page on a .ca domain or a Canadian-locale path
+            # (/en-ca/, /fr-ca/) is itself a Canadian employment signal — a
+            # dedicated Canadian job portal implies Canadian hiring.
+            page_url = page.get("url", "")
+            page_host = (urlparse(page_url).netloc or "").lower()
+            page_path = (urlparse(page_url).path or "").lower()
+            if page.get("page_type") == "careers" and (
+                page_host.endswith(".ca")
+                or re.search(r"/(en|fr)-ca(/|$)", page_path)
+            ):
+                signals = signals or ["careers portal on Canadian domain/locale"]
             # Require a careers/jobs page for the upgrade, or explicit
             # employment phrasing on other pages.
             is_careers = page.get("page_type") == "careers"
