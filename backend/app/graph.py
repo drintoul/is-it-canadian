@@ -1149,8 +1149,17 @@ def validate_candidate_node(state: GraphState) -> dict:
         # A 0% name match means no query token appears in the domain — the
         # site is almost certainly a different company (e.g. a partner page
         # like triangle.canadiantire.ca for 'Petro Canada'). Failing is more
-        # honest than classifying the wrong site.
-        if company_name and score == 0:
+        # honest than classifying the wrong site. Exception: acronym domains —
+        # 'Electronic Arts' → ea.com, 'Canadian Broadcasting Corporation' →
+        # cbc.ca — where the domain is the company's initials.
+        acronym = "".join(
+            t[0] for t in re.split(r"[^a-z0-9]+", company_name.lower())
+            if t and t not in _NAME_STOPWORDS
+        )
+        best_host = (urlparse(best).netloc or "").lower().removeprefix("www.")
+        best_sld = best_host.split(".")[-2] if len(best_host.split(".")) >= 2 else best_host
+        is_acronym = len(acronym) >= 2 and best_sld == acronym
+        if company_name and score == 0 and not is_acronym:
             trace = [
                 f"✗ Best candidate has no name match: {best} "
                 f"(searched for '{company_name}')"
@@ -1392,24 +1401,26 @@ def scrape_evidence_node(state: GraphState) -> dict:
         )
         trace.append(f"✓ Evidence page scraped: {url} ({len(content)} chars)")
 
-    # Reference fallback first — a Wikipedia API call is far cheaper than
-    # scraping alternate domains, and often settles identity outright.
+    # Reference fallback — always fetch the Wikipedia lead when a company name
+    # is available. It's one cheap API call, and the identity-pattern heuristic
+    # can false-positive on pages that mention "headquarters" without stating
+    # nationality (e.g. ea.com/about). For companies without an article the
+    # lookup returns "" and costs nothing.
     has_identity = any(
         assess_evidence_sufficiency(p.get("content", "")) for p in scraped
     )
-    if not has_identity:
-        wiki = _wikipedia_summary(state.get("company_name", ""))
-        if wiki:
-            scraped.append(
-                {
-                    "url": "https://en.wikipedia.org/",
-                    "page_type": "reference",
-                    "content": wiki,
-                    "content_length": len(wiki),
-                }
-            )
-            trace.append(f"✓ Wikipedia reference added ({len(wiki)} chars)")
-            has_identity = True
+    wiki = _wikipedia_summary(state.get("company_name", ""))
+    if wiki:
+        scraped.append(
+            {
+                "url": "https://en.wikipedia.org/",
+                "page_type": "reference",
+                "content": wiki,
+                "content_length": len(wiki),
+            }
+        )
+        trace.append(f"✓ Wikipedia reference added ({len(wiki)} chars)")
+        has_identity = True
 
     # Alternate-domain fallback: only when Wikipedia didn't settle identity.
     # Cap consecutive failures per domain so a dead host can't burn the budget.

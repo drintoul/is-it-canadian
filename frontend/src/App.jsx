@@ -445,7 +445,7 @@ function App() {
                 </h2>
                 <ol className="list-decimal list-inside space-y-1 text-slate-700 text-sm">
                   {logs.map((t, i) => (
-                    <li key={i}>{t}</li>
+                    <li key={i} className="break-words">{t}</li>
                   ))}
                 </ol>
               </div>
