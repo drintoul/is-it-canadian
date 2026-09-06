@@ -1676,10 +1676,6 @@ def validate_classification_node(state: GraphState) -> dict:
             "The available page content did not contain verifiable evidence "
             "to confirm whether this company is Canadian."
         )
-    if employs == "Yes" and not emp_ev:
-        employs = "Unclear"
-        warnings.append("Canadian employment could not be confirmed by verifiable evidence")
-
     # Downgrade on "insufficient evidence" phrasing — but a gap about the
     # opposite direction is consistent with the answer (e.g. "no evidence of
     # Canadian identity" supports No), so only downgrade when the gap targets
@@ -1693,8 +1689,9 @@ def validate_classification_node(state: GraphState) -> dict:
 
     # Deterministic employment upgrade: if the model said Unclear but a
     # careers/jobs-type evidence page contains Canadian location signals,
-    # that is affirmative evidence of Canadian employment.
-    if employs == "Unclear":
+    # that is affirmative evidence of Canadian employment. Runs before the
+    # downgrade check so a verified upgrade isn't followed by a stale warning.
+    if employs != "Yes" or not emp_ev:
         for page in state.get("evidence_pages") or []:
             if page.get("page_type") not in ("careers", "homepage", "contact"):
                 continue
@@ -1722,6 +1719,11 @@ def validate_classification_node(state: GraphState) -> dict:
                     f"mentions {', '.join(signals[:5])}"
                 )
                 break
+
+    # Post-upgrade downgrade: only warn if employment is still unconfirmed.
+    if employs == "Yes" and not emp_ev:
+        employs = "Unclear"
+        warnings.append("Canadian employment could not be confirmed by verifiable evidence")
 
     if warnings:
         trace.append("✗ Deterministic validation adjusted the result")
