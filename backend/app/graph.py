@@ -152,8 +152,8 @@ AGGREGATOR_HOSTS = (
     "pinterest.com",
     "crunchbase.com",
     "bloomberg.com",
-    "glassdoor.com",
-    "indeed.com",
+    "glassdoor.",
+    "indeed.",
     "yelp.com",
     "tripadvisor.",
     "trustpilot.com",
@@ -406,6 +406,12 @@ def _wikipedia_summary(company_name: str) -> str:
         for page in pages.values():
             extract = page.get("extract", "")
             if extract:
+                # Wikipedia leads often contain IPA pronunciations in parens
+                # (e.g. "Yahoo! (/ˈjɑːhuː/)") — when non-ASCII is stripped
+                # downstream they collapse to "()". Remove empty or
+                # punctuation-only parentheticals so quotes stay clean.
+                extract = re.sub(r"\(\s*[^A-Za-z0-9()]*\s*\)", "", extract)
+                extract = re.sub(r"  +", " ", extract)
                 return f"Wikipedia article '{title}':\n{extract}"
         return ""
     except Exception as exc:
@@ -1234,6 +1240,27 @@ def validate_candidate_node(state: GraphState) -> dict:
                 normalized = apex_url
                 best = apex_url
 
+        # Brand-TLD fallback: if the candidate lives on a TLD that is itself a
+        # company-name token (m365.cloud.microsoft for 'Microsoft'), the real
+        # corporate site is almost certainly <name>.com — prefer it and keep
+        # the brand-TLD URL as an alternate.
+        best_labels = best_host.split(".")
+        if company_name and len(best_labels) >= 2:
+            tld = best_labels[-1]
+            name_tokens = [
+                t for t in re.split(r"[^a-z0-9]+", company_name.lower())
+                if len(t) > 1 and t not in _NAME_STOPWORDS
+            ]
+            if tld in name_tokens:
+                com_url = normalize_url(f"{tld}.com")
+                if com_url and com_url != normalized:
+                    trace.append(
+                        f"↳ {best_host} is on the .{tld} brand TLD; trying {com_url} instead"
+                    )
+                    alternates = [normalized] + [a for a in alternates if a != normalized]
+                    normalized = com_url
+                    best = com_url
+
         # Deep-path/query fallback: a result like example.com/profile,
         # example.com/ca/en/aco/flights, or example.com/?country=us is a page,
         # not the corporate homepage. Prefer the domain root and keep the
@@ -1557,11 +1584,27 @@ def scrape_evidence_node(state: GraphState) -> dict:
             if not ok:
                 trace.append(f"✗ Careers site skipped: {url} ({reason})")
                 continue
-            # Skip lookalike domains — a different company's careers page is
-            # not evidence for the target (searsseating.com ≠ Sears).
-            if company and _domain_extra_chars(company, url) > 4:
-                trace.append(f"✗ Careers site skipped: {url} (lookalike domain)")
-                continue
+            # Skip unrelated/lookalike domains — a different company's careers
+            # page is not evidence for the target. The host must contain a
+            # company-name token somewhere (jobs.ca has no 'yahoo' → unrelated
+            # job board; company.myworkdayjobs.com does → legit portal). Then
+            # reject lookalikes with long leftover suffixes (searsseating.com
+            # ≠ Sears), except brand TLDs where the TLD is the name
+            # (research.google for 'Google').
+            if company:
+                host = (urlparse(url).netloc or "").lower().removeprefix("www.")
+                tld = host.split(".")[-1] if "." in host else ""
+                name_tokens = {
+                    t for t in re.split(r"[^a-z0-9]+", company.lower())
+                    if len(t) > 1 and t not in _NAME_STOPWORDS
+                }
+                if name_tokens and not any(t in host for t in name_tokens):
+                    trace.append(f"✗ Careers site skipped: {url} (unrelated domain)")
+                    continue
+                is_brand_tld = tld in name_tokens
+                if not is_brand_tld and _domain_extra_chars(company, url) > 4:
+                    trace.append(f"✗ Careers site skipped: {url} (lookalike domain)")
+                    continue
             url, content, reason = _scrape_one(url)
             if not content:
                 label = "failed" if reason.startswith("failed") else "rejected"
@@ -1805,7 +1848,14 @@ def validate_classification_node(state: GraphState) -> dict:
             has_jobs_text = bool(
                 re.search(r"(job|career|position|role|hiring|employ)", page.get("content", ""), re.I)
             )
-            if signals and (is_careers or has_jobs_text):
+            # A bare 2-letter province code (NU, ON, …) is too weak on its own —
+            # it can appear in unrelated text. Require a city/province name,
+            # 'Canada', the locale signal, or multiple signals.
+            strong = [
+                s for s in signals
+                if not (len(s) == 2 and s.isupper())
+            ]
+            if strong and (is_careers or has_jobs_text):
                 employs = "Yes"
                 emp_ev = emp_ev + [{
                     "claim": "Canadian job locations detected on company page",

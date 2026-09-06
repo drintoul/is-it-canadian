@@ -428,9 +428,11 @@ function App() {
                         <ul className="space-y-2">
                           {evidence.map((e, i) => (
                             <li key={i} className="text-sm bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
-                              {e.claim && !(e.quote_or_excerpt && (
-                                e.quote_or_excerpt.includes(e.claim) || e.claim.includes(e.quote_or_excerpt)
-                              )) && <p className="font-medium text-slate-800">{e.claim}</p>}
+                              {e.claim && !(e.quote_or_excerpt && (() => {
+                                const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+                                const c = norm(e.claim), q = norm(e.quote_or_excerpt)
+                                return q.includes(c) || c.includes(q)
+                              })()) && <p className="font-medium text-slate-800">{e.claim}</p>}
                               {e.quote_or_excerpt && (
                                 <blockquote className="text-slate-600 italic border-l-2 border-red-300 pl-2 mt-1">
                                   “{e.quote_or_excerpt}”
