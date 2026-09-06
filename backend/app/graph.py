@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, List, Optional, Tuple, TypedDict
 from urllib.parse import urljoin, urlparse
 
@@ -620,7 +621,11 @@ def _path_matches_type(path: str, keywords) -> bool:
     it contains the substring ``company`` — the segment must be (or start with)
     a keyword, and deeper paths are deprioritized by the caller.
     """
-    segments = [s for s in path.lower().split("/") if s]
+    segments = [
+        re.sub(r"\.(html?|php|aspx?|jsp)$", "", s)
+        for s in path.lower().split("/")
+        if s
+    ]
     for segment in segments:
         for keyword in keywords:
             if segment == keyword or segment.startswith(keyword + "-") or segment.startswith(keyword + "_"):
@@ -1344,6 +1349,18 @@ def discover_evidence_node(state: GraphState) -> dict:
     }
 
 
+def _scrape_one(url: str) -> Tuple[str, str, str]:
+    """Scrape one URL. Returns (url, content, rejection_reason)."""
+    try:
+        content, _status = _firecrawl_scrape(url)
+    except Exception as exc:
+        return url, "", f"failed: {exc}"
+    valid, reason = validate_scrape(content)
+    if not valid:
+        return url, "", reason
+    return url, content, ""
+
+
 def scrape_evidence_node(state: GraphState) -> dict:
     pages = state.get("evidence_pages") or []
     scraped: List[EvidencePage] = [
@@ -1355,19 +1372,15 @@ def scrape_evidence_node(state: GraphState) -> dict:
         }
     ]
     trace = []
-    for page in pages:
-        if len(scraped) > MAX_EVIDENCE_PAGES:
-            break
-        url = page.get("url", "")
-        try:
-            content, _status = _firecrawl_scrape(url)
-        except Exception as exc:
-            logger.warning("Evidence page scrape failed for %s: %s", url, exc)
-            trace.append(f"✗ Evidence page failed: {url} ({exc})")
-            continue
-        valid, reason = validate_scrape(content)
-        if not valid:
-            trace.append(f"✗ Evidence page rejected: {url} ({reason})")
+
+    # Scrape evidence pages in parallel — each is an independent HTTP call.
+    candidates = [p for p in pages if p.get("url")][: MAX_EVIDENCE_PAGES]
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        results = list(pool.map(lambda p: _scrape_one(p["url"]), candidates))
+    for page, (url, content, reason) in zip(candidates, results):
+        if not content:
+            label = "failed" if reason.startswith("failed") else "rejected"
+            trace.append(f"✗ Evidence page {label}: {url} ({reason})")
             continue
         scraped.append(
             {
@@ -1379,53 +1392,8 @@ def scrape_evidence_node(state: GraphState) -> dict:
         )
         trace.append(f"✓ Evidence page scraped: {url} ({len(content)} chars)")
 
-    # Alternate-domain fallback: if no scraped page contains corporate-identity
-    # signals, try the first alternate candidate (e.g. aboutschwab.com when
-    # schwab.com was selected) — corporate microsites often carry the HQ info.
-    has_identity = any(
-        assess_evidence_sufficiency(p.get("content", "")) for p in scraped
-    )
-    if not has_identity:
-        for alt in (state.get("alternate_candidates") or [])[:2]:
-            # Try the alternate URL plus guessed canonical paths on its domain —
-            # corporate microsites often keep HQ info on sub-pages.
-            parsed_alt = urlparse(alt)
-            alt_base = f"{parsed_alt.scheme}://{parsed_alt.netloc}"
-            alt_urls = [alt] + [
-                alt_base + path
-                for _t, paths in GUESSED_EVIDENCE_PATHS[:4]
-                for path in paths[:2]
-            ]
-            for alt_url in alt_urls:
-                if len(scraped) > MAX_EVIDENCE_PAGES + 2:
-                    break
-                try:
-                    content, _status = _firecrawl_scrape(alt_url)
-                except Exception as exc:
-                    logger.warning("Alternate candidate scrape failed for %s: %s", alt_url, exc)
-                    trace.append(f"✗ Alternate site failed: {alt_url} ({exc})")
-                    continue
-                valid, reason = validate_scrape(content)
-                if not valid:
-                    trace.append(f"✗ Alternate site rejected: {alt_url} ({reason})")
-                    continue
-                scraped.append(
-                    {
-                        "url": alt_url,
-                        "page_type": "alternate_site",
-                        "content": content,
-                        "content_length": len(content),
-                    }
-                )
-                trace.append(f"✓ Alternate site scraped: {alt_url} ({len(content)} chars)")
-                if assess_evidence_sufficiency(content):
-                    break
-            if any(assess_evidence_sufficiency(p.get("content", "")) for p in scraped):
-                break
-
-    # Reference fallback: if no scraped page contains corporate-identity
-    # signals, supplement with the company's Wikipedia lead — a reliable
-    # source for HQ/incorporation facts the site itself may not state.
+    # Reference fallback first — a Wikipedia API call is far cheaper than
+    # scraping alternate domains, and often settles identity outright.
     has_identity = any(
         assess_evidence_sufficiency(p.get("content", "")) for p in scraped
     )
@@ -1441,6 +1409,43 @@ def scrape_evidence_node(state: GraphState) -> dict:
                 }
             )
             trace.append(f"✓ Wikipedia reference added ({len(wiki)} chars)")
+            has_identity = True
+
+    # Alternate-domain fallback: only when Wikipedia didn't settle identity.
+    # Cap consecutive failures per domain so a dead host can't burn the budget.
+    if not has_identity:
+        for alt in (state.get("alternate_candidates") or [])[:2]:
+            parsed_alt = urlparse(alt)
+            alt_base = f"{parsed_alt.scheme}://{parsed_alt.netloc}"
+            alt_urls = [alt] + [
+                alt_base + path
+                for _t, paths in GUESSED_EVIDENCE_PATHS[:4]
+                for path in paths[:2]
+            ]
+            consecutive_failures = 0
+            for alt_url in alt_urls:
+                if len(scraped) > MAX_EVIDENCE_PAGES + 2 or consecutive_failures >= 3:
+                    break
+                url, content, reason = _scrape_one(alt_url)
+                if not content:
+                    consecutive_failures += 1
+                    label = "failed" if reason.startswith("failed") else "rejected"
+                    trace.append(f"✗ Alternate site {label}: {alt_url} ({reason})")
+                    continue
+                consecutive_failures = 0
+                scraped.append(
+                    {
+                        "url": alt_url,
+                        "page_type": "alternate_site",
+                        "content": content,
+                        "content_length": len(content),
+                    }
+                )
+                trace.append(f"✓ Alternate site scraped: {alt_url} ({len(content)} chars)")
+                if assess_evidence_sufficiency(content):
+                    break
+            if any(assess_evidence_sufficiency(p.get("content", "")) for p in scraped):
+                break
 
     # Careers-search fallback: if no careers-type page yielded content, the
     # company's job board may live on an external ATS (e.g. jobs.*.com or a
@@ -1461,17 +1466,14 @@ def scrape_evidence_node(state: GraphState) -> dict:
             if careers_urls:
                 break
         for url in careers_urls[:5]:
-            ok, _reason = validate_candidate_url(url)
+            ok, reason = validate_candidate_url(url)
             if not ok:
+                trace.append(f"✗ Careers site skipped: {url} ({reason})")
                 continue
-            try:
-                content, _status = _firecrawl_scrape(url)
-            except Exception as exc:
-                logger.warning("Careers page scrape failed for %s: %s", url, exc)
-                continue
-            valid, reason = validate_scrape(content)
-            if not valid:
-                trace.append(f"✗ Careers site rejected: {url} ({reason})")
+            url, content, reason = _scrape_one(url)
+            if not content:
+                label = "failed" if reason.startswith("failed") else "rejected"
+                trace.append(f"✗ Careers site {label}: {url} ({reason})")
                 continue
             scraped.append(
                 {

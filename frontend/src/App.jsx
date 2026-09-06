@@ -401,6 +401,37 @@ function App() {
                       <ReactMarkdown>{result.reasoning}</ReactMarkdown>
                     </div>
                   )}
+                  {(() => {
+                    const evidence = [
+                      ...(result.canadian_evidence || []),
+                      ...(result.non_canadian_evidence || []),
+                      ...(result.employment_evidence || []),
+                    ].filter((e) => e.quote_or_excerpt || e.claim)
+                    if (!evidence.length) return null
+                    return (
+                      <div className="mt-4 border-t border-slate-200 pt-3">
+                        <h3 className="text-sm font-semibold text-slate-700 mb-2">Evidence</h3>
+                        <ul className="space-y-2">
+                          {evidence.map((e, i) => (
+                            <li key={i} className="text-sm bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+                              {e.claim && <p className="font-medium text-slate-800">{e.claim}</p>}
+                              {e.quote_or_excerpt && (
+                                <blockquote className="text-slate-600 italic border-l-2 border-red-300 pl-2 mt-1">
+                                  “{e.quote_or_excerpt}”
+                                </blockquote>
+                              )}
+                              {e.source_url && (
+                                <a href={e.source_url} target="_blank" rel="noreferrer"
+                                   className="text-xs text-red-600 underline hover:text-red-800 mt-1 inline-block break-all">
+                                  {e.source_url}
+                                </a>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )
+                  })()}
                 </div>
 
               </div>
