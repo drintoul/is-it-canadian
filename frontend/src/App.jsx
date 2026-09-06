@@ -51,7 +51,6 @@ function App() {
     validate_evidence: 'pending',
     classify: 'pending',
     validate_classification: 'pending',
-    terminate: 'pending',
   }
   const [nodes, setNodes] = useState(INITIAL_NODES)
 
