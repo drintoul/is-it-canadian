@@ -1,0 +1,48 @@
+services:
+
+  backend:
+
+    container_name: isitcanadian-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "${BACKEND_HOST_PORT}:8000"
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - BRAVE_API_KEY=${BRAVE_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 2
+      start_period: 5s
+
+  frontend:
+
+    container_name: isitcanadian-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${FRONTEND_HOST_PORT}:5173"
+    env_file:
+      - .env
+    environment:
+      - VITE_API_TARGET=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+networks:
+
+  app-network:
+    external: true
