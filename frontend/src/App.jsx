@@ -402,11 +402,18 @@ function App() {
                     </div>
                   )}
                   {(() => {
+                    const seen = new Set()
                     const evidence = [
                       ...(result.canadian_evidence || []),
                       ...(result.non_canadian_evidence || []),
                       ...(result.employment_evidence || []),
-                    ].filter((e) => e.quote_or_excerpt || e.claim)
+                    ].filter((e) => {
+                      if (!e.quote_or_excerpt && !e.claim) return false
+                      const key = `${e.quote_or_excerpt || ''}|${e.source_url || ''}`
+                      if (seen.has(key)) return false
+                      seen.add(key)
+                      return true
+                    })
                     if (!evidence.length) return null
                     return (
                       <div className="mt-4 border-t border-slate-200 pt-3">
@@ -438,14 +445,14 @@ function App() {
             )}
 
             {(loading || logs.length > 0) && (
-              <div className="bg-white rounded-2xl shadow p-6">
+              <div className="bg-white rounded-2xl shadow p-6 min-w-0 overflow-hidden">
                 <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
                   <History className="w-5 h-5 text-red-600" />
                   Execution Trace
                 </h2>
                 <ol className="list-decimal list-inside space-y-1 text-slate-700 text-sm">
                   {logs.map((t, i) => (
-                    <li key={i} className="break-words">{t}</li>
+                    <li key={i} className="break-all">{t}</li>
                   ))}
                 </ol>
               </div>
