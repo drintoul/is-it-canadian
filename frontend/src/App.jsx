@@ -44,12 +44,14 @@ function App() {
     scrape_homepage: 'pending',
     validate_scrape: 'pending',
     retry_scrape: 'pending',
+    try_alternate: 'pending',
     assess_evidence: 'pending',
     discover_evidence: 'pending',
     scrape_evidence: 'pending',
     validate_evidence: 'pending',
     classify: 'pending',
     validate_classification: 'pending',
+    terminate: 'pending',
   }
   const [nodes, setNodes] = useState(INITIAL_NODES)
 
@@ -59,17 +61,18 @@ function App() {
     ['searxng', 'SearXNG', 'Searches for the company\'s official website using the self-hosted SearXNG instance.'],
     ['brave', 'Brave Search', 'Fallback search if SearXNG finds nothing usable.'],
     ['tavily', 'Tavily Search', 'Final search fallback before giving up.'],
-    ['validate_candidate', 'Validate Candidate', 'Ranks search results by how well the domain matches the company name — rejects Wikipedia, LinkedIn, directories, app stores, and sandbox/staging hosts. Prefers the apex domain over portal subdomains (careers.*, shop.*) and deep pages.'],
+    ['validate_candidate', 'Validate Candidate', 'Ranks search results by how well the domain matches the company name — rejects Wikipedia, LinkedIn, directories, app stores, sandbox/staging hosts, and foreign-ccTLD lookalikes. Recognizes acronym domains ("Electronic Arts" → ea.com). Prefers the apex domain over portal subdomains (careers.*, shop.*) and deep pages.'],
     ['scrape_homepage', 'Scrape Homepage', 'Downloads the homepage content via Firecrawl.'],
     ['validate_scrape', 'Validate Scrape', 'Verifies the scrape actually returned usable text — rejects empty pages, error pages, captchas, and JavaScript-only stubs. Thin but real pages still proceed to evidence discovery.'],
     ['retry_scrape', 'Retry Scrape', 'Retries with a different strategy: first Firecrawl with extra JS-render wait, then a direct HTTP fetch.'],
+    ['try_alternate', 'Try Alternate Candidate', 'When scrape retries are exhausted on a dead or lookalike domain, promotes the next alternate candidate and re-scrapes it instead of giving up.'],
     ['assess_evidence', 'Assess Evidence', 'Checks whether the homepage alone contains corporate-identity signals (headquarters, incorporation, founding location).'],
     ['discover_evidence', 'Discover Evidence Pages', 'Maps the site via Firecrawl\'s /v1/map endpoint to find real corporate pages — About, Legal, Investors, Contact, Careers, Newsroom — falling back to homepage links and canonical path guesses when the map is empty.'],
-    ['scrape_evidence', 'Scrape Evidence Pages', 'Scrapes and validates each evidence page. If no page has identity signals, also tries alternate candidate domains (e.g. about*.com microsites) and adds a Wikipedia reference. If no careers page yielded content, searches for an external careers portal.'],
+    ['scrape_evidence', 'Scrape Evidence Pages', 'Scrapes evidence pages in parallel and validates each. Always adds a Wikipedia reference when a company name is available; if identity is still unresolved, tries alternate candidate domains (capped at 3 consecutive failures per domain). If no careers page yielded content, searches for an external careers portal.'],
     ['validate_evidence', 'Validate Evidence', 'Builds the evidence bundle sent to the LLM, annotating each page with detected Canadian and foreign location mentions. If no usable evidence exists, classification is skipped entirely.'],
-    ['classify', 'Classify with Ollama', 'The LLM reads only the evidence bundle and answers Yes/No/Unclear as strict JSON, citing the evidence it relied on.'],
-    ['validate_classification', 'Validate Classification', 'Deterministic check: a "Yes" requires Canadian evidence, a "No" requires foreign evidence — otherwise downgraded to Unclear. Also upgrades "Employs Canadians" to Yes when a careers page lists Canadian locations.'],
-    ['terminal', 'Terminal', 'Final step — assembles the result or the failure reason and ends the workflow.'],
+    ['classify', 'Classify with Ollama', 'The LLM reads only the evidence bundle and answers Yes/No/Unclear as strict JSON, citing verbatim evidence excerpts it relied on.'],
+    ['validate_classification', 'Validate Classification', 'Deterministic check: every cited quote is verified against the scraped content — unverifiable quotes are discarded. A "Yes" requires Canadian evidence, a "No" requires foreign evidence — otherwise downgraded to Unclear. Upgrades "Employs Canadians" to Yes when a careers page is on a .ca domain, a Canadian-locale path (/en-ca/, /fr-ca/), or lists Canadian locations.'],
+    ['terminate', 'Terminate', 'Final step — assembles the result or the failure reason and ends the workflow.'],
   ]
   const seenNodesRef = useRef(new Set())
 
@@ -250,16 +253,20 @@ function App() {
           </h1>
           <p className="text-red-100 mt-2 max-w-3xl mx-auto">
             Enter a company name or paste a URL and we'll check whether the
-            company is Canadian. The agent finds the official website, reads its
-            corporate pages, and answers Yes, No, or Unclear — always citing the
-            evidence it relied on. No evidence, no verdict.
+            company is Canadian — and whether it employs Canadians. The agent
+            finds the official website, reads its corporate pages (About,
+            Careers, Legal, Investors), and answers Yes, No, or Unclear —
+            always citing the exact evidence it relied on, with links to the
+            source pages. No evidence, no verdict.
           </p>
           <p className="text-red-200 text-sm mt-2 max-w-3xl mx-auto">
-            Powered by an agentic LangGraph workflow: SearXNG → Brave → Tavily
-            search fallback, Firecrawl scraping with site-map discovery and
-            canonical-path guessing, a local Ollama model for classification,
-            and deterministic post-validation that verifies every cited quote
-            against the scraped content.
+            Under the hood, an agentic LangGraph workflow orchestrates the
+            check: a SearXNG → Brave → Tavily search fallback chain locates the
+            official site, Firecrawl scrapes it with site-map discovery and
+            canonical-path guessing, a local Ollama model classifies strictly
+            from the evidence bundle, and deterministic post-validation
+            verifies every cited quote against the scraped content before the
+            answer is shown.
           </p>
         </div>
       </header>
@@ -421,7 +428,9 @@ function App() {
                         <ul className="space-y-2">
                           {evidence.map((e, i) => (
                             <li key={i} className="text-sm bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
-                              {e.claim && <p className="font-medium text-slate-800">{e.claim}</p>}
+                              {e.claim && !(e.quote_or_excerpt && (
+                                e.quote_or_excerpt.includes(e.claim) || e.claim.includes(e.quote_or_excerpt)
+                              )) && <p className="font-medium text-slate-800">{e.claim}</p>}
                               {e.quote_or_excerpt && (
                                 <blockquote className="text-slate-600 italic border-l-2 border-red-300 pl-2 mt-1">
                                   “{e.quote_or_excerpt}”
@@ -429,7 +438,7 @@ function App() {
                               )}
                               {e.source_url && (
                                 <a href={e.source_url} target="_blank" rel="noreferrer"
-                                   className="text-xs text-red-600 underline hover:text-red-800 mt-1 inline-block break-all">
+                                   className="text-xs text-blue-600 underline hover:text-blue-800 mt-1 inline-block break-all">
                                   {e.source_url}
                                 </a>
                               )}

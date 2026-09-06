@@ -54,15 +54,16 @@ def graph_mermaid():
     validate_candidate[\"Validate Candidate\"]
     scrape_homepage[\"Scrape Homepage\"]
     validate_scrape[\"Validate Scrape\"]
-    retry_scrape[\"Retry Scrape\"]
-    assess_evidence[\"Assess Evidence\"]
-    discover_evidence[\"Discover Evidence Pages\"]
-    scrape_evidence[\"Scrape Evidence Pages\"]
-    validate_evidence[\"Validate Evidence\"]
-    classify[\"Classify with Ollama\"]
-    validate_classification[\"Validate Classification\"]
-    terminal[\"Terminal\"]
-    fail[\"✗ Any failure path<br/>(invalid input, no results,<br/>no candidate, retries exhausted,<br/>no usable evidence)\"]
+    retry_scrape["Retry Scrape"]
+    try_alternate["Try Alternate Candidate"]
+    assess_evidence["Assess Evidence"]
+    discover_evidence["Discover Evidence Pages"]
+    scrape_evidence["Scrape Evidence Pages"]
+    validate_evidence["Validate Evidence"]
+    classify["Classify with Ollama"]
+    validate_classification["Validate Classification"]
+    terminate["Terminate"]
+    fail["✗ Any failure path<br/>(invalid input, no results,<br/>no candidate, retries exhausted,<br/>no usable evidence)"]
     normalize_input -->|company name| searxng
     normalize_input -->|url supplied| scrape_homepage
     searxng -->|no usable candidate| brave
@@ -76,14 +77,16 @@ def graph_mermaid():
     retry_scrape --> validate_scrape
     validate_scrape -->|valid| assess_evidence
     validate_scrape -->|thin but real content| discover_evidence
+    validate_scrape -->|retries exhausted| try_alternate
+    try_alternate --> scrape_homepage
     assess_evidence -->|insufficient| discover_evidence
     discover_evidence --> scrape_evidence
     scrape_evidence --> validate_evidence
     assess_evidence -->|sufficient| validate_evidence
     validate_evidence --> classify
     classify --> validate_classification
-    validate_classification --> terminal
-    fail -.-> terminal
+    validate_classification --> terminate
+    fail -.-> terminate
 """
 
 

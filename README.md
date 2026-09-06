@@ -15,29 +15,36 @@ Results stream back to a React UI in real time as the agent runs.
   Tavily Search API.
 - **Candidate validation** — Ranks results by name-match score; rejects
   aggregators (Wikipedia, LinkedIn, app stores, review sites), non-production
-  hosts (sandbox/staging/dev), portal subdomains (careers.*, shop.*), and deep
-  pages — preferring the apex domain. Ambiguous matches surface a warning and
-  alternate candidates.
+  hosts (sandbox/staging/dev), portal subdomains (careers.*, shop.*), deep
+  pages, and foreign-ccTLD lookalikes — preferring the apex domain. Acronym
+  domains are recognized ("Electronic Arts" → `ea.com`). Ambiguous matches
+  surface a warning and alternate candidates.
 - **Direct URL support** — Paste a URL (bare domains like `cbc.ca` work) to skip
   the lookup.
 - **Resilient scraping** — Firecrawl with escalating retries (JS-render wait,
   then direct HTTP fetch). Thin-but-real homepages still proceed to evidence
-  discovery.
-- **Evidence discovery** — Finds corporate pages (About, Legal, Investors,
-  Contact, History, Careers, Newsroom, Privacy) via homepage links and canonical
-  path guesses, trying multiple path variants per type. If no page has identity
-  signals, it also tries alternate candidate domains and searches for an
-  external careers portal.
+  discovery; when retries are exhausted on a dead domain, the next alternate
+  candidate is promoted and re-scraped.
+- **Evidence discovery** — Maps the site via Firecrawl's `/v1/map` endpoint to
+  find real corporate pages (About, Legal, Investors, Contact, History,
+  Careers, Newsroom, Privacy), falling back to homepage links and canonical
+  path guesses. Evidence pages are scraped in parallel. A Wikipedia reference
+  is always added when a company name is available; if identity is still
+  unresolved, alternate candidate domains are tried (capped at 3 consecutive
+  failures per domain), and an external careers portal is searched when no
+  careers page yielded content.
 - **Evidence-driven classification** — A local Ollama model answers
   `Yes / No / Unclear` (plus `employs_canadians`) as strict JSON, citing
   verbatim evidence excerpts with source URLs.
-- **Deterministic validation** — A `Yes` requires Canadian evidence, a `No`
-  requires foreign evidence; unsupported or self-contradictory answers are
-  downgraded to `Unclear`. Careers pages listing Canadian locations
-  deterministically upgrade `employs_canadians` to `Yes`.
+- **Deterministic validation** — Every cited quote is verified against the
+  scraped content (unverifiable quotes are discarded); a `Yes` requires
+  Canadian evidence, a `No` requires foreign evidence; unsupported or
+  self-contradictory answers are downgraded to `Unclear`. Careers pages on
+  `.ca` domains, Canadian-locale paths (`/en-ca/`, `/fr-ca/`), or listing
+  Canadian locations deterministically upgrade `employs_canadians` to `Yes`.
 - **Streaming UI** — Three-column React UI: live Mermaid workflow diagram,
-  per-step explanations, and the answer card with execution trace, warnings,
-  and alternate candidates.
+  per-step explanations, and the answer card with verified evidence quotes,
+  execution trace, and warnings.
 
 ## How it works
 
@@ -51,14 +58,15 @@ SearXNG → Brave → Tavily  (search fallback chain)
 Validate Candidate  (name-match ranking, aggregator/host rejection)
     ↓
 Scrape Homepage → Validate Scrape → Retry Scrape (waitFor, direct fetch)
-    ↓
+    ↓                              ↘ Try Alternate (retries exhausted)
 Assess Evidence → Discover Evidence Pages → Scrape Evidence Pages
-    ↓                    (incl. alternate domains + careers-portal search)
+    ↓              (Firecrawl map, parallel scrapes, Wikipedia reference,
+    ↓               alternate domains, careers-portal search)
 Validate Evidence  (bundle with detected Canadian/foreign location signals)
     ↓
-Classify (Ollama) → Validate Classification (deterministic rules)
+Classify (Ollama) → Validate Classification (quote verification + rules)
     ↓
-Terminal → Yes / No / Unclear + employs_canadians + cited evidence
+Terminate → Yes / No / Unclear + employs_canadians + cited evidence
 ```
 
 The backend is a FastAPI app with a LangGraph graph that exposes:

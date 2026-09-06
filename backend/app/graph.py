@@ -104,6 +104,7 @@ class GraphState(TypedDict, total=False):
     selected_candidate: str
     candidate_validation: str
     alternate_candidates: List[str]
+    alternates_exhausted: bool
 
     # Retrieval
     content: str  # homepage content (kept for compatibility)
@@ -187,6 +188,13 @@ AGGREGATOR_HOSTS = (
     "workopolis.com",
     "simplyhired.com",
     "careerbuilder.com",
+    "job-applications.com",
+    # Form/document hosts — not corporate sites or real careers portals
+    "pdffiller.com",
+    "signnow.com",
+    "jotform.com",
+    "docs.google.com",
+    "forms.gle",
 )
 
 # Subdomain labels that indicate a non-production environment — never an
@@ -645,6 +653,17 @@ def discover_evidence_pages(homepage_content: str, homepage_url: str) -> List[Ev
     links = _firecrawl_map(homepage_url)
     if not links:
         links = _extract_links(homepage_content, homepage_url)
+    # Locale preference: Canadian locales and unlocalized paths first, foreign
+    # locales (uk-en, in-en, …) last — a Canadian checker shouldn't read the UK
+    # about page when a generic or /en-ca/ one exists.
+    def _locale_rank(path: str) -> int:
+        first = (path.lstrip("/").split("/") or [""])[0]
+        if first in ("en-ca", "fr-ca", "ca-en", "ca-fr"):
+            return 0
+        if re.fullmatch(r"[a-z]{2}-[a-z]{2}", first):
+            return 2
+        return 1
+
     shallow = []  # depth <= 2: likely real nav/corporate pages
     deep = []     # deeper: likely blog/article/case-study pages
     for link in links:
@@ -654,11 +673,13 @@ def discover_evidence_pages(homepage_content: str, homepage_url: str) -> List[Ev
         depth = path.count("/")
         for priority, (page_type, keywords) in enumerate(EVIDENCE_PATH_PRIORITY):
             if _path_matches_type(path, keywords):
-                (shallow if depth <= 2 else deep).append((priority, depth, link, page_type))
+                (shallow if depth <= 2 else deep).append(
+                    (priority, _locale_rank(path), depth, link, page_type)
+                )
                 break
 
-    shallow.sort(key=lambda item: (item[0], item[1]))
-    deep.sort(key=lambda item: (item[0], item[1]))
+    shallow.sort(key=lambda item: (item[0], item[1], item[2]))
+    deep.sort(key=lambda item: (item[0], item[1], item[2]))
 
     pages: List[EvidencePage] = []
     seen = set()
@@ -681,7 +702,7 @@ def discover_evidence_pages(homepage_content: str, homepage_url: str) -> List[Ev
     # keeps the scrape budget covering every type instead of exhausting it on
     # high-priority types (e.g. dozens of */terms-and-conditions promos).
     by_type: dict = {}
-    for _p, _d, link, page_type in shallow:
+    for _p, _l, _d, link, page_type in shallow:
         by_type.setdefault(page_type, []).append(link)
     for round_idx in range(2):
         for page_type, _kw in EVIDENCE_PATH_PRIORITY:
@@ -716,7 +737,7 @@ def discover_evidence_pages(homepage_content: str, homepage_url: str) -> List[Ev
         idx += 1
 
     # 3. Deep discovered links fill any remaining slots.
-    for _p, _d, link, page_type in deep:
+    for _p, _l, _d, link, page_type in deep:
         if len(pages) >= candidate_cap:
             break
         _add(link, page_type, covers=False)
@@ -1100,18 +1121,28 @@ def _domain_extra_chars(company_name: str, url: str) -> int:
     return len(sld)
 
 
+# ccTLDs that are plausible homes for a Canadian company's official site.
+# Foreign ccTLDs (.cn, .ru, …) hosting a name-lookalike are almost always
+# parked/scam domains — penalize them below .ca/.com/generic TLDs.
+_TRUSTED_TLDS = {"ca", "com", "org", "net", "io", "co", "ai", "app", "dev"}
+
+
 def _candidate_rank_key(company_name: str, url: str):
     """Sort key: name match first, then prefer exact-name domains over
-    lookalikes, apex over portal subdomains, then shallower paths."""
+    lookalikes, trusted TLDs over foreign ccTLDs, apex over portal
+    subdomains, then shallower paths."""
     parsed = urlparse(url)
     host = (parsed.netloc or "").lower().removeprefix("www.")
     labels = host.split(".")
     subdomain = labels[0] if len(labels) > 2 else ""
     portal_penalty = 1 if subdomain in _NON_CORPORATE_SUBDOMAINS else 0
+    tld = labels[-1] if labels else ""
+    tld_penalty = 0 if tld in _TRUSTED_TLDS else 1
     depth = (parsed.path or "/").count("/")
     return (
         _name_match_score(company_name, url),
         -_domain_extra_chars(company_name, url),
+        -tld_penalty,
         -portal_penalty,
         -depth,
     )
@@ -1278,6 +1309,51 @@ def scrape_homepage_node(state: GraphState) -> dict:
         "homepage_status": status,
         "scrape_attempts": 1,
         "trace": trace,
+    }
+
+
+def try_alternate_node(state: GraphState) -> dict:
+    """Promote the next alternate candidate after the selected site's scrape
+    retries are exhausted — e.g. a lookalike domain that fails to load while
+    the real site sits in the alternates list."""
+    alternates = list(state.get("alternate_candidates") or [])
+    company = state.get("company_name", "")
+    failed_root = state.get("selected_candidate") or state.get("url") or ""
+    while alternates:
+        nxt = alternates[0]
+        parsed = urlparse(nxt)
+        root = normalize_url(f"{parsed.scheme}://{parsed.netloc}") or nxt
+        # Skip alternates that normalize to the domain we just failed on —
+        # retrying the same dead root wastes the whole retry budget.
+        if root == failed_root:
+            alternates.pop(0)
+            continue
+        # Skip lookalike domains — 'searsseating.com' contains 'sears' but has
+        # many leftover characters, marking it a different company. Allow small
+        # suffixes (searspr.com → 'pr' = 2) but reject long ones.
+        if company and _domain_extra_chars(company, nxt) > 4:
+            skipped = alternates.pop(0)
+            logger.info("Skipping lookalike alternate: %s", skipped)
+            continue
+        break
+    if not alternates:
+        return {
+            "alternates_exhausted": True,
+            "trace": ["✗ No usable alternate candidates to try"],
+        }
+    nxt = alternates.pop(0)
+    # Normalize to the domain root — alternates may be deep pages.
+    parsed = urlparse(nxt)
+    root = normalize_url(f"{parsed.scheme}://{parsed.netloc}") or nxt
+    return {
+        "selected_candidate": root,
+        "url": root,
+        "alternate_candidates": alternates,
+        "scrape_attempts": 0,
+        "scrape_valid": False,
+        "scrape_failure_reason": "",
+        "content": "",
+        "trace": [f"↳ Trying alternate candidate: {root}"],
     }
 
 
@@ -1480,6 +1556,11 @@ def scrape_evidence_node(state: GraphState) -> dict:
             ok, reason = validate_candidate_url(url)
             if not ok:
                 trace.append(f"✗ Careers site skipped: {url} ({reason})")
+                continue
+            # Skip lookalike domains — a different company's careers page is
+            # not evidence for the target (searsseating.com ≠ Sears).
+            if company and _domain_extra_chars(company, url) > 4:
+                trace.append(f"✗ Careers site skipped: {url} (lookalike domain)")
                 continue
             url, content, reason = _scrape_one(url)
             if not content:
@@ -1767,7 +1848,7 @@ def validate_classification_node(state: GraphState) -> dict:
 
 def route_after_normalize(state: GraphState) -> str:
     if state.get("classification_status") == "not_performed":
-        return "terminal"
+        return "terminate"
     if state.get("selected_candidate"):
         return "scrape_homepage"
     return "searxng"
@@ -1778,7 +1859,7 @@ def route_after_search(provider: str):
         if state.get("search_results"):
             return "validate_candidate"
         nxt = {"searxng": "brave", "brave": "tavily"}.get(provider)
-        return nxt or "terminal"
+        return nxt or "terminate"
 
     return _route
 
@@ -1787,7 +1868,7 @@ def route_after_validate_candidate(state: GraphState) -> str:
     if state.get("selected_candidate"):
         return "scrape_homepage"
     nxt = {"searxng": "brave", "brave": "tavily"}.get(state.get("search_provider", ""))
-    return nxt or "terminal"
+    return nxt or "terminate"
 
 
 def route_after_validate_scrape(state: GraphState) -> str:
@@ -1799,10 +1880,12 @@ def route_after_validate_scrape(state: GraphState) -> str:
     # Retries exhausted. If the site returned some real content (e.g. a thin
     # JS-heavy marketing page), still try evidence-page discovery — canonical
     # pages like /about may scrape fine even when the homepage doesn't.
-    # Near-empty stubs (< 50 chars) still fail fast.
     if len((state.get("content") or "").strip()) >= 50:
         return "discover_evidence"
-    return "terminal"
+    # Nothing usable — try the next alternate candidate before giving up.
+    if state.get("alternate_candidates"):
+        return "try_alternate"
+    return "terminate"
 
 
 def route_after_assess(state: GraphState) -> str:
@@ -1814,7 +1897,7 @@ def route_after_assess(state: GraphState) -> str:
 
 def route_after_validate_evidence(state: GraphState) -> str:
     if state.get("classification_status") == "not_performed":
-        return "terminal"
+        return "terminate"
     return "classify"
 
 
@@ -1826,7 +1909,7 @@ def _terminal_update(state: GraphState) -> dict:
     return {}
 
 
-def terminal_node(state: GraphState) -> dict:
+def terminate_node(state: GraphState) -> dict:
     update = _terminal_update(state)
 
     # Scrape-failure path: validation failed and retries were exhausted without
@@ -1863,13 +1946,14 @@ def build_graph():
     workflow.add_node("scrape_homepage", scrape_homepage_node)
     workflow.add_node("validate_scrape", validate_scrape_node)
     workflow.add_node("retry_scrape", retry_scrape_node)
+    workflow.add_node("try_alternate", try_alternate_node)
     workflow.add_node("assess_evidence", assess_evidence_node)
     workflow.add_node("discover_evidence", discover_evidence_node)
     workflow.add_node("scrape_evidence", scrape_evidence_node)
     workflow.add_node("validate_evidence", validate_evidence_node)
     workflow.add_node("classify", classify_node)
     workflow.add_node("validate_classification", validate_classification_node)
-    workflow.add_node("terminal", terminal_node)
+    workflow.add_node("terminate", terminate_node)
 
     workflow.set_entry_point("normalize_input")
     workflow.add_conditional_edges("normalize_input", route_after_normalize)
@@ -1879,13 +1963,19 @@ def build_graph():
     workflow.add_conditional_edges("validate_candidate", route_after_validate_candidate)
     workflow.add_edge("scrape_homepage", "validate_scrape")
     workflow.add_edge("retry_scrape", "validate_scrape")
+    workflow.add_conditional_edges(
+        "try_alternate",
+        # All candidates failed to scrape — still try the Wikipedia reference
+        # path so a well-known company gets an evidence-based answer.
+        lambda s: "scrape_evidence" if s.get("alternates_exhausted") else "scrape_homepage",
+    )
     workflow.add_conditional_edges("validate_scrape", route_after_validate_scrape)
     workflow.add_conditional_edges("assess_evidence", route_after_assess)
     workflow.add_edge("discover_evidence", "scrape_evidence")
     workflow.add_edge("scrape_evidence", "validate_evidence")
     workflow.add_conditional_edges("validate_evidence", route_after_validate_evidence)
     workflow.add_edge("classify", "validate_classification")
-    workflow.add_edge("validate_classification", "terminal")
-    workflow.add_edge("terminal", END)
+    workflow.add_edge("validate_classification", "terminate")
+    workflow.add_edge("terminate", END)
 
     return workflow.compile()
