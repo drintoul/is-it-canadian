@@ -251,6 +251,16 @@ function App() {
             <img src="/favicon.svg" alt="Maple leaf logo" className="w-9 h-9" />
             Is It Canadian?
           </h1>
+          <div className="mt-2 flex justify-center">
+            <a
+              href="https://davidrintoul.info"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-red-50 text-xs font-medium rounded-full px-3 py-1 transition-colors"
+            >
+              by David Rintoul
+            </a>
+          </div>
           <p className="text-red-100 mt-2 max-w-3xl mx-auto">
             Enter a company name or paste a URL and we'll check whether the
             company is Canadian — and whether it employs Canadians. The agent

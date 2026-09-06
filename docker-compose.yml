@@ -43,17 +43,13 @@ services:
       - app-network
 
   cloudflared:
-    # Cloudflare Tunnel — exposes the frontend publicly without opening ports.
-    # Only built/started when the 'tunnel' profile is enabled AND TUNNEL_TOKEN
-    # is set in .env (e.g. COMPOSE_PROFILES=tunnel). Get a token from
-    # https://one.dash.cloudflare.com/ → Networks → Tunnels.
     container_name: isitcanadian-cloudflared
     image: cloudflare/cloudflared:latest
     profiles:
       - tunnel
     command: tunnel --no-autoupdate run
     environment:
-      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
     depends_on:
       - frontend
     networks:

@@ -8,6 +8,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    allowedHosts: ['canadian.davidrintoul.info'],
     proxy: {
       '/api': {
         target: API_TARGET,
