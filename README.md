@@ -9,6 +9,18 @@ no evidence, no verdict.
 
 Results stream back to a React UI in real time as the agent runs.
 
+## Demo
+
+<a href="https://canadian.davidrintoul.info">
+  <img
+    src="docs/images/is-it-canadian-demo.png"
+    alt="Is It Canadian? evidence-grounded AI research application"
+    width="900"
+  >
+</a>
+
+**[Try the live demo](https://canadian.davidrintoul.info)**
+
 ## What it does
 
 - **Company name → website lookup** — SearXNG first, then Brave Search API, then
