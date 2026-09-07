@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Search, Loader2, Globe, AlertCircle, CheckCircle, XCircle, HelpCircle, History } from 'lucide-react'
+import { Search, Loader2, Globe, AlertCircle, CheckCircle, XCircle, HelpCircle, History, Github } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import MermaidDiagram from './components/MermaidDiagram.jsx'
 
@@ -242,6 +242,14 @@ function App() {
             <span className="block mt-2 font-mono text-red-300">canadian.davidrintoul.info</span>
             on a desktop or laptop computer.
           </p>
+          <a
+            href="https://davidrintoul.info"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-block mt-6 text-sm text-slate-400 underline hover:text-slate-200 transition-colors"
+          >
+            davidrintoul.info
+          </a>
         </div>
       </div>
 
@@ -251,14 +259,23 @@ function App() {
             <img src="/favicon.svg" alt="Maple leaf logo" className="w-9 h-9" />
             Is It Canadian?
           </h1>
-          <div className="mt-2 flex justify-center">
+          <div className="mt-2 flex justify-center gap-2">
             <a
               href="https://davidrintoul.info"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-red-50 text-xs font-medium rounded-full px-3 py-1 transition-colors"
             >
-              developed by David Rintoul
+              by David Rintoul
+            </a>
+            <a
+              href="https://github.com/drintoul/isitcanadian"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-red-50 text-xs font-medium rounded-full px-3 py-1 transition-colors"
+            >
+              <Github className="w-3.5 h-3.5" />
+              Source
             </a>
           </div>
           <p className="text-red-100 mt-2 max-w-3xl mx-auto">
