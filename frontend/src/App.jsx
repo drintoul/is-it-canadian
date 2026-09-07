@@ -258,7 +258,7 @@ function App() {
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-red-50 text-xs font-medium rounded-full px-3 py-1 transition-colors"
             >
-              by David Rintoul
+              developed by David Rintoul
             </a>
           </div>
           <p className="text-red-100 mt-2 max-w-3xl mx-auto">
