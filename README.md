@@ -13,7 +13,7 @@ Results stream back to a React UI in real time as the agent runs.
 
 <a href="https://canadian.davidrintoul.info">
   <img
-    src="docs/images/is-it-canadian-demo.png"
+    src="public/preview-banner.png"
     alt="Is It Canadian? evidence-grounded AI research application"
     width="900"
   >
