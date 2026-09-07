@@ -51,6 +51,7 @@ function App() {
     validate_evidence: 'pending',
     classify: 'pending',
     validate_classification: 'pending',
+    terminate: 'pending',
   }
   const [nodes, setNodes] = useState(INITIAL_NODES)
 
@@ -269,7 +270,7 @@ function App() {
               by David Rintoul
             </a>
             <a
-              href="https://github.com/drintoul/isitcanadian"
+              href="https://github.com/drintoul/is-it-canadian"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-red-50 text-xs font-medium rounded-full px-3 py-1 transition-colors"
