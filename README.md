@@ -48,6 +48,54 @@ Results stream back to a React UI in real time as the agent runs.
 
 ## How it works
 
+## How it works
+
+```mermaid
+flowchart TD
+    A["Company name or URL"] --> B["Normalize Input"]
+
+    B --> C["SearXNG"]
+    C -->|fallback| D["Brave"]
+    D -->|fallback| E["Tavily"]
+
+    C --> F["Validate Candidate"]
+    D --> F
+    E --> F
+
+    F --> G["Scrape Homepage"]
+    G --> H["Validate Scrape"]
+
+    H -->|usable| I["Assess Evidence"]
+    H -->|retry needed| J["Retry Scrape<br/>waitFor / direct fetch"]
+    J --> H
+    J -->|retries exhausted| K["Try Alternate Candidate"]
+    K --> F
+
+    I --> L["Discover Evidence Pages"]
+
+    L --> M["Firecrawl map"]
+    L --> N["Parallel page scrapes"]
+    L --> O["Wikipedia reference"]
+    L --> P["Alternate domains"]
+    L --> Q["Careers-portal search"]
+
+    M --> R["Scrape Evidence Pages"]
+    N --> R
+    O --> R
+    P --> R
+    Q --> R
+
+    R --> S["Validate Evidence<br/>Bundle evidence + detected<br/>Canadian / foreign location signals"]
+
+    S --> T["Classify with Ollama"]
+
+    T --> U["Validate Classification<br/>Quote verification + deterministic rules"]
+
+    U --> V["Terminate"]
+
+    V --> W["Yes / No / Unclear<br/>+ employs_canadians<br/>+ cited evidence"]
+```
+
 ```text
 company name or URL
     ↓
