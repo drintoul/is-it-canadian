@@ -48,8 +48,6 @@ Results stream back to a React UI in real time as the agent runs.
 
 ## How it works
 
-## How it works
-
 ```mermaid
 flowchart TD
     A["Company name or URL"] --> B["Normalize Input"]
@@ -94,27 +92,6 @@ flowchart TD
     U --> V["Terminate"]
 
     V --> W["Yes / No / Unclear<br/>+ employs_canadians<br/>+ cited evidence"]
-```
-
-```text
-company name or URL
-    ↓
-Normalize Input
-    ↓
-SearXNG → Brave → Tavily  (search fallback chain)
-    ↓
-Validate Candidate  (name-match ranking, aggregator/host rejection)
-    ↓
-Scrape Homepage → Validate Scrape → Retry Scrape (waitFor, direct fetch)
-    ↓                              ↘ Try Alternate (retries exhausted)
-Assess Evidence → Discover Evidence Pages → Scrape Evidence Pages
-    ↓              (Firecrawl map, parallel scrapes, Wikipedia reference,
-    ↓               alternate domains, careers-portal search)
-Validate Evidence  (bundle with detected Canadian/foreign location signals)
-    ↓
-Classify (Ollama) → Validate Classification (quote verification + rules)
-    ↓
-Terminate → Yes / No / Unclear + employs_canadians + cited evidence
 ```
 
 The backend is a FastAPI app with a LangGraph graph that exposes:
