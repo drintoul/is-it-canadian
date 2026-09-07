@@ -238,7 +238,8 @@ function App() {
           <img src="/favicon.svg" alt="Maple leaf logo" className="w-16 h-16 mx-auto mb-6" />
           <h1 className="text-2xl font-bold mb-3">Is It Canadian?</h1>
           <p className="text-slate-300">
-            This page must be opened on a desktop device. Please revisit this URL
+            This page must be opened on a desktop device. Please revisit
+            <span className="block mt-2 font-mono text-red-300">canadian.davidrintoul.info</span>
             on a desktop or laptop computer.
           </p>
         </div>
