@@ -1793,6 +1793,39 @@ def validate_classification_node(state: GraphState) -> dict:
     can_ev, d1 = _verified(can_ev)
     non_ev, d2 = _verified(non_ev)
     emp_ev, d3 = _verified(emp_ev)
+
+    # Backfill employment evidence source URLs: the model sometimes returns an
+    # empty or fabricated source_url. If the quote appears in a scraped page,
+    # point the citation at that page's actual URL.
+    known_urls = {
+        p.get("url", "") for p in (state.get("evidence_pages") or [])
+    }
+    pages_norm = [
+        (
+            p.get("url", ""),
+            re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", (p.get("content") or "").lower())),
+        )
+        for p in (state.get("evidence_pages") or [])
+    ]
+    for item in emp_ev:
+        url = item.get("source_url", "")
+        if url and url in known_urls:
+            continue
+        quote = (item.get("quote_or_excerpt") or "").strip()
+        quote_norm = re.sub(
+            r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", quote.lower())
+        ).strip()
+        if not quote_norm:
+            continue
+        words = quote_norm.split()
+        window = min(5, len(words))
+        for page_url, content_norm in pages_norm:
+            if quote_norm in content_norm or any(
+                " ".join(words[i:i + window]) in content_norm
+                for i in range(len(words) - window + 1)
+            ):
+                item["source_url"] = page_url
+                break
     if d1 + d2 + d3:
         warnings.append(
             "Some cited evidence could not be verified against the page content and was removed"
