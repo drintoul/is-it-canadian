@@ -233,28 +233,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Mobile block: this app requires a desktop viewport */}
-      <div className="lg:hidden fixed inset-0 z-50 bg-slate-900 flex items-center justify-center p-8">
-        <div className="text-center text-white max-w-sm">
-          <img src="/favicon.svg" alt="Maple leaf logo" className="w-16 h-16 mx-auto mb-6" />
-          <h1 className="text-2xl font-bold mb-3">Is It Canadian?</h1>
-          <p className="text-slate-300">
-            This page must be opened on a desktop device. Please revisit
-            <span className="block mt-2 font-mono text-red-300">canadian.davidrintoul.info</span>
-            on a desktop or laptop computer.
-          </p>
-          <a
-            href="https://davidrintoul.info"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-block mt-6 text-sm text-slate-400 underline hover:text-slate-200 transition-colors"
-          >
-            davidrintoul.info
-          </a>
-        </div>
-      </div>
-
-      <header className="bg-gradient-to-r from-red-600 to-red-500 text-white py-8 shadow">
+      <header className="bg-gradient-to-r from-red-600 to-red-500 text-white py-5 lg:py-8 shadow">
         <div className="max-w-4xl mx-auto px-4">
           <h1 className="text-3xl font-bold flex items-center justify-center gap-2">
             <img src="/favicon.svg" alt="Maple leaf logo" className="w-9 h-9" />
@@ -287,7 +266,12 @@ function App() {
             always citing the exact evidence it relied on, with links to the
             source pages. No evidence, no verdict.
           </p>
-          <p className="text-red-200 text-sm mt-2 max-w-3xl mx-auto">
+          <p className="lg:hidden text-red-200 text-sm mt-2 max-w-3xl mx-auto">
+            Visit this page on a desktop or laptop to see the agent's inner
+            workings — the live workflow diagram, step-by-step explanations,
+            and execution trace.
+          </p>
+          <p className="hidden lg:block text-red-200 text-sm mt-2 max-w-3xl mx-auto">
             Under the hood, an agentic LangGraph workflow orchestrates the
             check: a SearXNG → Brave → Tavily search fallback chain locates the
             official site, Firecrawl scrapes it with site-map discovery and
@@ -313,12 +297,12 @@ function App() {
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               placeholder="Company name, e.g., Shopify"
-              className="flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
+              className="flex-1 min-w-0 border border-slate-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
             />
             <button
               type="submit"
               disabled={loading || (!companyName && !url)}
-              className="bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-medium flex items-center gap-2"
+              className="shrink-0 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white px-4 sm:px-5 py-2 rounded-lg font-medium flex items-center gap-2"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
               {loading ? 'Analyzing...' : 'Check'}
@@ -341,8 +325,15 @@ function App() {
           )}
         </form>
 
+        {loading && (
+          <div className="lg:hidden flex flex-col items-center gap-3 py-4 text-slate-600">
+            <Loader2 className="w-10 h-10 animate-spin text-red-600" />
+            <p className="text-sm font-medium">Analyzing...</p>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-          <div className="bg-white rounded-2xl shadow p-6">
+          <div className="hidden lg:block bg-white rounded-2xl shadow p-6">
             <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
               <Globe className="w-5 h-5 text-red-600" />
               LangGraph Workflow
@@ -352,7 +343,7 @@ function App() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow p-6">
+          <div className="hidden lg:block bg-white rounded-2xl shadow p-6">
             <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
               <HelpCircle className="w-5 h-5 text-red-600" />
               What Each Step Means
@@ -484,7 +475,7 @@ function App() {
             )}
 
             {(loading || logs.length > 0) && (
-              <div className="bg-white rounded-2xl shadow p-6 min-w-0 overflow-hidden">
+              <div className="hidden lg:block bg-white rounded-2xl shadow p-6 min-w-0 overflow-hidden">
                 <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
                   <History className="w-5 h-5 text-red-600" />
                   Execution Trace

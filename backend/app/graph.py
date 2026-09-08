@@ -369,11 +369,12 @@ def _firecrawl_map(url: str, limit: int = 200) -> List[str]:
         return []
 
 
-def _wikipedia_summary(company_name: str) -> str:
+def _wikipedia_summary(company_name: str) -> Tuple[str, str]:
     """Fetch the Wikipedia lead for a company as supplementary identity
-    evidence. Returns '' on failure or when no matching article exists."""
+    evidence. Returns (content, article_url), or ('', '') on failure or
+    when no matching article exists."""
     if not company_name:
-        return ""
+        return "", ""
     try:
         # Find the best-matching article title via the search API.
         r = httpx.get(
@@ -388,8 +389,9 @@ def _wikipedia_summary(company_name: str) -> str:
         r.raise_for_status()
         results = r.json().get("query", {}).get("search", [])
         if not results:
-            return ""
+            return "", ""
         title = results[0]["title"]
+        article_url = "https://en.wikipedia.org/wiki/" + title.replace(" ", "_")
         # Fetch the plain-text lead extract.
         r2 = httpx.get(
             "https://en.wikipedia.org/w/api.php",
@@ -412,11 +414,11 @@ def _wikipedia_summary(company_name: str) -> str:
                 # punctuation-only parentheticals so quotes stay clean.
                 extract = re.sub(r"\(\s*[^A-Za-z0-9()]*\s*\)", "", extract)
                 extract = re.sub(r"  +", " ", extract)
-                return f"Wikipedia article '{title}':\n{extract}"
-        return ""
+                return f"Wikipedia article '{title}':\n{extract}", article_url
+        return "", ""
     except Exception as exc:
         logger.warning("Wikipedia lookup failed for %s: %s", company_name, exc)
-        return ""
+        return "", ""
 
 
 def _direct_fetch(url: str, _hops: int = 0) -> Tuple[str, int]:
@@ -1512,11 +1514,11 @@ def scrape_evidence_node(state: GraphState) -> dict:
     has_identity = any(
         assess_evidence_sufficiency(p.get("content", "")) for p in scraped
     )
-    wiki = _wikipedia_summary(state.get("company_name", ""))
+    wiki, wiki_url = _wikipedia_summary(state.get("company_name", ""))
     if wiki:
         scraped.append(
             {
-                "url": "https://en.wikipedia.org/",
+                "url": wiki_url,
                 "page_type": "reference",
                 "content": wiki,
                 "content_length": len(wiki),
