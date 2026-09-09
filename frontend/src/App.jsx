@@ -491,7 +491,7 @@ function App() {
         </div>
       </main>
 
-      <footer className="max-w-4xl mx-auto px-4 pb-16">
+      <footer className="max-w-4xl mx-auto px-4 mt-8 pb-24">
         <p className="text-xs text-slate-500 text-center border-t border-slate-200 pt-4">
           Disclaimer: This tool uses AI to analyze publicly available information
           and can make mistakes. While every effort has been made to eliminate
